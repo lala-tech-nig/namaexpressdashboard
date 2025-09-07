@@ -1,4 +1,5 @@
 "use client";
+
 import { useEffect, useState } from "react";
 import axios from "axios";
 import * as XLSX from "xlsx";
@@ -69,22 +70,33 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">POS Orders Dashboard</h1>
+    <div className="p-6 bg-gray-50 min-h-screen">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+        <h1 className="text-3xl font-extrabold text-gray-900 mb-4 md:mb-0">
+          POS Orders Dashboard
+        </h1>
 
-      <div className="flex justify-between items-center mb-4">
-        <DateFilter value={range} onChange={setRange} />
-        <button
-          onClick={exportExcel}
-          className="bg-green-600 text-white px-4 py-2 rounded"
-        >
-          Export Excel
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <DateFilter value={range} onChange={setRange} />
+          <button
+            onClick={exportExcel}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow-md transition duration-200"
+          >
+            Export Excel
+          </button>
+        </div>
       </div>
 
-      <OrderTable orders={paginated} />
+      {/* Orders Table */}
+      <div className="bg-white shadow-md rounded-xl overflow-hidden border border-gray-200 mb-6">
+        <OrderTable orders={paginated} />
+      </div>
 
-      <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      {/* Pagination */}
+      <div className="flex justify-center">
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+      </div>
     </div>
   );
 }
