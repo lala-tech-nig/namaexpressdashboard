@@ -74,7 +74,7 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
         <h1 className="text-3xl font-extrabold text-gray-900 mb-4 md:mb-0">
-          POS Orders Dashboard
+          NAMA EXPRESS Dashboard
         </h1>
 
         <div className="flex flex-col sm:flex-row gap-2">
