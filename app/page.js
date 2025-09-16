@@ -16,10 +16,12 @@ export default function Dashboard() {
 
   // fetch orders
   useEffect(() => {
-    axios.get("https://namaexpressbackend.onrender.com/api/orders").then((res) => {
-      setOrders(res.data);
-      setFiltered(res.data);
-    });
+    axios
+      .get("https://namaexpressbackend.onrender.com/api/orders")
+      .then((res) => {
+        setOrders(res.data);
+        setFiltered(res.data);
+      });
   }, []);
 
   // filter by date
@@ -50,9 +52,7 @@ export default function Dashboard() {
     }
 
     if (from) {
-      setFiltered(
-        orders.filter((o) => new Date(o.createdAt) >= from)
-      );
+      setFiltered(orders.filter((o) => new Date(o.createdAt) >= from));
     }
   }, [range, orders]);
 
@@ -61,12 +61,42 @@ export default function Dashboard() {
   const start = (page - 1) * perPage;
   const paginated = filtered.slice(start, start + perPage);
 
-  // export to excel
-  const exportExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(filtered);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
-    XLSX.writeFile(workbook, "orders.xlsx");
+  // export to excel + share on Android
+  const exportExcel = async () => {
+    try {
+      const worksheet = XLSX.utils.json_to_sheet(filtered);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
+
+      // generate file as Blob
+      const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+
+      const file = new File([blob], "orders.xlsx", { type: blob.type });
+
+      // if Web Share API supports file sharing (Android/Chrome)
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: "Orders Export",
+          text: "Here is the exported Excel file from NAMA EXPRESS POS.",
+          files: [file],
+        });
+      } else {
+        // fallback: normal download
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "orders.xlsx";
+        link.click();
+        URL.revokeObjectURL(url);
+        alert("Sharing not supported on this device. File downloaded instead.");
+      }
+    } catch (err) {
+      console.error("Export/Share failed:", err);
+      alert("Something went wrong while exporting.");
+    }
   };
 
   return (
