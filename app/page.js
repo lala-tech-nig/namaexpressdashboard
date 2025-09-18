@@ -240,22 +240,49 @@ export default function Dashboard() {
         </div>
 
         {showHistory && (
-          <div className="mt-6">
-            <h3 className="text-lg font-semibold mb-3">Sales History</h3>
-            <ul className="divide-y divide-gray-200 max-h-64 overflow-auto p-2 bg-gray-50 rounded">
+          <div className="mt-10">
+          <h3 className="text-2xl font-bold text-yellow-500 mb-4 flex items-center gap-2">
+            📊 Sales History
+          </h3>
+        
+          <div className="bg-white shadow-lg rounded-2xl overflow-hidden border border-gray-200">
+            <ul className="divide-y divide-gray-200 max-h-80 overflow-auto">
               {history.length === 0 && (
-                <li className="py-2 text-sm text-gray-500 text-center">No history yet</li>
-              )}
-              {history.map((h, i) => (
-                <li key={i} className="py-2 flex justify-between text-sm">
-                  <span className="font-medium">{h.date}</span>
-                  <span>
-                    {h.sales} sales — ₦{(h.totalAmount || 0).toLocaleString()}
-                  </span>
+                <li className="py-6 text-sm text-gray-500 text-center">
+                  No history yet 🚫
                 </li>
-              ))}
+              )}
+        
+              {[...history]
+                .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest first
+                .map((h, i) => (
+                  <li
+                    key={i}
+                    className="px-4 py-4 flex justify-between items-center hover:bg-gray-50 transition"
+                  >
+                    {/* Date */}
+                    <span className="font-semibold text-gray-700 text-base">
+                      {h.date}
+                    </span>
+        
+                    {/* Sales info in mini stats */}
+                    <div className="flex items-center gap-6">
+                      <div className="text-center">
+                        <p className="text-xs uppercase text-gray-400">Sales</p>
+                        <p className="text-lg font-bold text-green-600">{h.sales}</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs uppercase text-gray-400">Total</p>
+                        <p className="text-lg font-bold text-gray-800">
+                          ₦{(h.totalAmount || 0).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  </li>
+                ))}
             </ul>
           </div>
+        </div>        
         )}
       </div>
 
