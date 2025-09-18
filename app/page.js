@@ -3,6 +3,9 @@
 import { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 import OrderTable from "./components/OrderTable";
 import Pagination from "./components/Pagination";
 import DateFilter from "./components/DateFilter";
@@ -30,7 +33,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  // fetch sales history from API
+  // fetch sales history
   const fetchHistory = useCallback(async () => {
     try {
       const res = await axios.get("https://namaexpressbackend.onrender.com/api/sales-summary");
@@ -45,7 +48,7 @@ export default function Dashboard() {
     fetchHistory();
   }, [fetchOrders, fetchHistory]);
 
-  // filter by date
+  // filter by date range
   useEffect(() => {
     if (range === "all") {
       setFiltered(orders);
@@ -53,9 +56,13 @@ export default function Dashboard() {
     }
 
     const now = new Date();
-    let from;
+    let from = null;
 
     switch (range) {
+      case "today":
+        from = new Date();
+        from.setHours(0, 0, 0, 0);
+        break;
       case "week":
         from = new Date();
         from.setDate(now.getDate() - 7);
@@ -81,7 +88,7 @@ export default function Dashboard() {
     }
   }, [range, orders]);
 
-  // compute today's sales and amount
+  // compute today's stats
   useEffect(() => {
     const todayStr = new Date().toDateString();
     const todaysOrders = orders.filter(
@@ -92,28 +99,26 @@ export default function Dashboard() {
     setAmountToday(todaysOrders.reduce((sum, o) => sum + (o.total || 0), 0));
   }, [orders]);
 
-  // auto reset at 12:02 AM (schedules next occurrence)
+  // auto reset sales close
   useEffect(() => {
     const scheduleReset = () => {
       const now = new Date();
       const nextReset = new Date();
       nextReset.setHours(0, 2, 0, 0); // 12:02 AM
-
       if (now >= nextReset) nextReset.setDate(nextReset.getDate() + 1);
 
       const msUntilReset = nextReset.getTime() - now.getTime();
       return setTimeout(async () => {
-        await handleCloseSales();   // call to close sales at scheduled time
+        await handleCloseSales();
         scheduleReset();
       }, msUntilReset);
     };
 
     const timer = scheduleReset();
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders, salesToday, amountToday]);
 
-  // manual close sales: posts to API, refreshes history and resets counters locally
+  // close sales
   const handleCloseSales = async (dateStr = new Date().toDateString()) => {
     if (closing) return;
     setClosing(true);
@@ -124,14 +129,9 @@ export default function Dashboard() {
         totalAmount: amountToday,
       });
 
-      // refresh history from server
       await fetchHistory();
-
-      // clear today's totals locally (orders remain in DB)
       setSalesToday(0);
       setAmountToday(0);
-
-      // also re-fetch orders in case state changed
       await fetchOrders();
     } catch (err) {
       console.error("Error closing sales:", err);
@@ -146,12 +146,11 @@ export default function Dashboard() {
   const start = (page - 1) * perPage;
   const paginated = filtered.slice(start, start + perPage);
 
-  // export to excel (adds items column as serialized string)
+  // export excel
   const exportExcel = async () => {
     try {
-      // build rows where items are serialized into a single cell
       const rows = filtered.map((o) => ({
-        SN: "", // we'll fill later
+        SN: "",
         orderId: o.id || o._id,
         items: (o.items || []).map((it) => `${it.name}×${it.qty}`).join(" | "),
         total: o.total || 0,
@@ -159,10 +158,11 @@ export default function Dashboard() {
         createdAt: new Date(o.createdAt).toLocaleString(),
       }));
 
-      // add serial numbers
       rows.forEach((r, idx) => (r.SN = idx + 1));
 
-      const worksheet = XLSX.utils.json_to_sheet(rows, { header: ["SN","orderId","items","total","status","createdAt"] });
+      const worksheet = XLSX.utils.json_to_sheet(rows, {
+        header: ["SN", "orderId", "items", "total", "status", "createdAt"],
+      });
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Orders");
 
@@ -172,7 +172,7 @@ export default function Dashboard() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `orders_${new Date().toISOString().slice(0,10)}.xlsx`;
+      a.download = `orders_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -182,6 +182,163 @@ export default function Dashboard() {
       alert("Something went wrong while exporting.");
     }
   };
+
+  // export pdf (orders table)
+  // const exportPDF = () => {
+  //   try {
+  //     const doc = new jsPDF("l", "pt", "a4");
+  //     const pageWidth = doc.internal.pageSize.getWidth();
+  //     const pageHeight = doc.internal.pageSize.getHeight();
+
+  //     // === LOGO + TITLE ===
+  //     const logoUrl = "namalogo.png"; // <-- replace with your logo path or base64 string
+  //     doc.addImage(logoUrl, "PNG", 20, 15, 50, 50); // logo top-left
+  //     doc.setFontSize(20);
+  //     doc.setTextColor(0, 0, 0); // black
+  //     doc.text("NAMA EXPRESS", 90, 40);
+
+  //     // === TABLE ===
+  //     const tableColumn = ["SN", "Order ID", "Items", "Total", "Status", "Created At"];
+  //     const tableRows = filtered.map((o, idx) => [
+  //       idx + 1,
+  //       o.id || o._id,
+  //       (o.items || []).map((it) => `${it.name}×${it.qty}`).join(" | "),
+  //       `₦${(o.total || 0).toLocaleString()}`,
+  //       o.status || "",
+  //       new Date(o.createdAt).toLocaleString(),
+  //     ]);
+
+  //     autoTable(doc, {
+  //       head: [tableColumn],
+  //       body: tableRows,
+  //       startY: 70,
+  //       styles: {
+  //         fontSize: 9,
+  //         cellPadding: 6,
+  //         overflow: "linebreak",
+  //       },
+  //       headStyles: {
+  //         fillColor: [255, 215, 0], // Yellow
+  //         textColor: [0, 0, 0], // Black text
+  //         halign: "center",
+  //         lineWidth: 0.5,
+  //         lineColor: [255, 0, 0], // Red border
+  //       },
+  //       bodyStyles: {
+  //         lineWidth: 0.25,
+  //         lineColor: [0, 0, 0], // black grid lines
+  //       },
+  //       columnStyles: {
+  //         0: { cellWidth: 30, halign: "center" },
+  //         1: { cellWidth: 120 },
+  //         2: { cellWidth: 350 },
+  //         3: { cellWidth: 80, halign: "right" },
+  //         4: { cellWidth: 80, halign: "center" },
+  //         5: { cellWidth: 160 },
+  //       },
+  //       didDrawPage: function () {
+  //         const pageCount = doc.internal.getNumberOfPages();
+  //         const footerStr = `Page ${pageCount}`;
+  //         doc.setFontSize(10);
+  //         doc.text(footerStr, pageWidth - 40, pageHeight - 10, { align: "right" });
+  //       },
+  //     });
+
+  //     doc.save(`orders_${new Date().toISOString().slice(0, 10)}.pdf`);
+  //   } catch (err) {
+  //     console.error("PDF export failed:", err);
+  //     alert("Something went wrong while exporting PDF.");
+  //   }
+  // };
+
+  const exportPDF = () => {
+    try {
+      const doc = new jsPDF("landscape", "pt", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+  
+      // === LOGO + TITLE ===
+      const logoUrl = "namalogo.png"; // replace with actual logo or base64
+      doc.addImage(logoUrl, "PNG", 20, 15, 50, 50); // logo top-left
+  
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(0, 0, 0);
+      doc.text("NAMA EXPRESS", 90, 40);
+  
+      // === TABLE HEADERS ===
+      const tableColumn = ["SN", "Order ID", "Item", "Qty", "Total", "Status", "Created At"];
+  
+      // === TABLE DATA (split items into multiple rows with separate Qty) ===
+      const tableRows = filtered.flatMap((o, idx) =>
+        (o.items || []).map((it, itemIdx) => [
+          itemIdx === 0 ? idx + 1 : "",
+          itemIdx === 0 ? (o.id || o._id) : "",
+          it.name,            // item name
+          it.qty,             // item quantity
+          itemIdx === 0 ? `#${(o.total || 0).toLocaleString()}` : "",
+          itemIdx === 0 ? (o.status || "") : "",
+          itemIdx === 0 ? new Date(o.createdAt).toLocaleString() : "",
+        ])
+      );
+  
+      // === AUTOTABLE ===
+      autoTable(doc, {
+        head: [tableColumn],
+        body: tableRows,
+        startY: 80,
+        styles: {
+          font: "helvetica",
+          fontSize: 10,
+          cellPadding: 5,
+          halign: "center",   // center all cells
+          valign: "middle",
+          overflow: "linebreak",
+        },
+        headStyles: {
+          fillColor: [255, 215, 0], // Yellow
+          textColor: [0, 0, 0],     // Black text
+          halign: "center",
+          valign: "middle",
+          lineWidth: 0.8,
+          lineColor: [255, 0, 0],   // Red border
+          fontStyle: "bold",
+        },
+        bodyStyles: {
+          textColor: [0, 0, 0],     // Black text
+          lineColor: [0, 0, 0],     // Black grid
+          lineWidth: 0.25,
+        },
+        columnStyles: {
+          0: { cellWidth: 40 },  // SN
+          1: { cellWidth: 100 }, // Order ID
+          2: { cellWidth: 150 }, // Item
+          3: { cellWidth: 50 },  // Qty
+          4: { cellWidth: 80 },  // Total
+          5: { cellWidth: 80 },  // Status
+          6: { cellWidth: 120 }, // Created At
+        },
+        didDrawPage: function () {
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFontSize(9);
+          doc.setTextColor(0, 0, 0);
+          doc.text(
+            `Page ${pageCount}`,
+            pageWidth - 50,
+            pageHeight - 20,
+            { align: "right" }
+          );
+        },
+      });
+  
+      // === SAVE ===
+      doc.save(`orders_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      alert("Something went wrong while exporting PDF.");
+    }
+  };
+  
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -198,6 +355,12 @@ export default function Dashboard() {
             className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg shadow-md transition duration-200"
           >
             Export Excel
+          </button>
+          <button
+            onClick={exportPDF}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg shadow-md transition duration-200"
+          >
+            Export PDF
           </button>
         </div>
       </div>
@@ -241,48 +404,41 @@ export default function Dashboard() {
 
         {showHistory && (
           <div className="mt-10">
-          <h3 className="text-2xl font-bold text-yellow-500 mb-4 flex items-center gap-2">
-            📊 Sales History
-          </h3>
-        
-          <div className="bg-white shadow-lg rounded-2xl overflow-hidden border border-gray-200">
-            <ul className="divide-y divide-gray-200 max-h-80 overflow-auto">
-              {history.length === 0 && (
-                <li className="py-6 text-sm text-gray-500 text-center">
-                  No history yet 🚫
-                </li>
-              )}
-        
-              {[...history]
-                .sort((a, b) => new Date(b.date) - new Date(a.date)) // newest first
-                .map((h, i) => (
-                  <li
-                    key={i}
-                    className="px-4 py-4 flex justify-between items-center hover:bg-gray-50 transition"
-                  >
-                    {/* Date */}
-                    <span className="font-semibold text-gray-700 text-base">
-                      {h.date}
-                    </span>
-        
-                    {/* Sales info in mini stats */}
-                    <div className="flex items-center gap-6">
-                      <div className="text-center">
-                        <p className="text-xs uppercase text-gray-400">Sales</p>
-                        <p className="text-lg font-bold text-green-600">{h.sales}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-xs uppercase text-gray-400">Total</p>
-                        <p className="text-lg font-bold text-gray-800">
-                          ₦{(h.totalAmount || 0).toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
+            <h3 className="text-2xl font-bold text-yellow-500 mb-4 flex items-center gap-2">
+              📊 Sales History
+            </h3>
+            <div className="bg-white shadow-lg rounded-2xl overflow-hidden border border-gray-200">
+              <ul className="divide-y divide-gray-200 max-h-80 overflow-auto">
+                {history.length === 0 && (
+                  <li className="py-6 text-sm text-gray-500 text-center">
+                    No history yet 🚫
                   </li>
-                ))}
-            </ul>
+                )}
+                {[...history]
+                  .sort((a, b) => new Date(b.date) - new Date(a.date))
+                  .map((h, i) => (
+                    <li
+                      key={i}
+                      className="px-4 py-4 flex justify-between items-center hover:bg-gray-50 transition"
+                    >
+                      <span className="font-semibold text-gray-700 text-base">{h.date}</span>
+                      <div className="flex items-center gap-6">
+                        <div className="text-center">
+                          <p className="text-xs uppercase text-gray-400">Sales</p>
+                          <p className="text-lg font-bold text-green-600">{h.sales}</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-xs uppercase text-gray-400">Total</p>
+                          <p className="text-lg font-bold text-gray-800">
+                            ₦{(h.totalAmount || 0).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+              </ul>
+            </div>
           </div>
-        </div>        
         )}
       </div>
 
